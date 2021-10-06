@@ -1,57 +1,44 @@
-from flask import Flask, render_template, Response
-import cv2
+import asyncio
+import base64
+import dash, cv2
+import dash_html_components as html
+import threading
 from Camera import Camera
-from VideoStream import VideoStream
-from queue import Queue
-import os
 
-# Initialize the Flask app
-app = Flask(__name__)
+from dash.dependencies import Output, Input
+from quart import Quart, websocket
+from dash_extensions import WebSocket
 
-framesNormalQue = Queue(maxsize=0)
-print('Queue created')
+"""Version 2"""
+camera = Camera(cv2.VideoCapture(3))
 
-camera = Camera(cv2.VideoCapture(3), framesNormalQue)
-camera.start()
-print('Camera thread started')
+server = Quart(__name__)
+n_streams = 2
 
-stream = VideoStream(framesNormalQue)
-print('Streams created')
-
-stream.start()
-print('Normal stream thread started')
-
-@app.route('/')
-def index():
-    return render_template('index.html')
-
-@app.route('/video_stream')
-def video_stream():
-    global stream
-    return Response(stream.gen(), mimetype='multipart/x-mixed-replace; boundary=frame')
+async def stream(camera, delay=None):
+    while True:
+        if delay is not None:
+            await asyncio.sleep(delay)  # add delay if CPU usage is too high
+        frame = camera.get_frame()
+        await websocket.send(f"data:image/jpeg;base64, {base64.b64encode(frame).decode()}")
 
 
-# d = os.getcwd()
+@server.websocket("/stream0")
+async def stream0():
+    camera = Camera(cv2.VideoCapture(3))
+    await stream(camera)
 
 
-# camera = cv2.VideoCapture(3)
+# Create small Dash application for UI.
+app = dash.Dash(__name__)
+app.layout = html.Div(
+    [html.Img(style={'width': '40%', 'padding': 10}, id=f"v{i}") for i in range(n_streams)] +
+    [WebSocket(url=f"ws://127.0.0.1:5000/stream{i}", id=f"ws{i}") for i in range(n_streams)]
+)
+# Copy data from websockets to Img elements.
+for i in range(n_streams):
+    app.clientside_callback("function(m){return m? m.data : '';}", Output(f"v{i}", "src"), Input(f"ws{i}", "message"))
 
-# def gen_livestream():  
-
-#     while True:
-#         success, frame = camera.read()
-#         ret, buffer = cv2.imencode('.jpg', frame)
-#         frame = buffer.tobytes()
-#         yield (b'--frame\r\n'
-#                 b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n') 
-
-# @app.route('/')
-# def index():
-#     return render_template('index.html')
-
-# @app.route('/video_feed')
-# def video_feed():
-#     return Response(gen_livestream(), mimetype='multipart/x-mixed-replace; boundary=frame')
-
-if __name__ == "__main__":
-    app.run(debug=True)
+if __name__ == '__main__':
+    threading.Thread(target=app.run_server).start()
+    server.run()

@@ -5,27 +5,20 @@ import cv2
 import simplejpeg
 
 class Camera(Thread):
-    def __init__(self, cam, normalQue):
+    def __init__(self, cam):
         Thread.__init__(self)
         self.__cam = cam
-        self.__normalQue = normalQue
         self.__shouldStop = False
         
     def __del__(self):
         self.__cam.release()
         print('Camera released')
-        
-    def run(self):
-        while True:
-            rval, frame = self.__cam.read()
-            frame = cv2.resize(frame, None, fx=0.5, fy=0.5, interpolation=cv2.INTER_AREA)
-            
-            _, jpeg = cv2.imencode('.jpg', frame)
-
-            self.__normalQue.put(jpeg.tobytes())
-
-            if self.__shouldStop:
-                break
+    
+    def get_frame(self):
+        rval, frame = self.__cam.read()
+        frame = cv2.resize(frame, None, fx=0.5, fy=0.5, interpolation=cv2.INTER_AREA)
+        _, jpeg = cv2.imencode('.jpg', frame)
+        return jpeg.tobytes()
 
     def stopCamera(self):
         self.__shouldStop = True
